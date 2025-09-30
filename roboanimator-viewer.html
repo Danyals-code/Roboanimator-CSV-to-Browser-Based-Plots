@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Roboanimator • CSV Viewer</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <!-- libs -->
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <style>
+    :root { --bg:#0f1116; --card:#151824; --text:#e8e9ee; --muted:#9aa0ad; --accent:#3ea6ff; }
+    *{ box-sizing:border-box }
+    body{ margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
+    header{ padding:18px 20px; border-bottom:1px solid #222736; display:flex; align-items:center; gap:12px; }
+    header h1{ font-size:18px; margin:0; letter-spacing:.2px }
+    .wrap{ max-width:1200px; margin:0 auto; padding:18px; }
+    .card{ background:var(--card); border:1px solid #23283a; border-radius:14px; padding:14px; margin-bottom:16px; }
+    .row{ display:flex; gap:12px; flex-wrap:wrap; align-items:end; }
+    label{ display:block; font-weight:600; margin-bottom:6px; color:#c7cbe2 }
+    input[type="number"], input[type="text"]{ width:140px; padding:8px 10px; border-radius:10px; border:1px solid #32384f; background:#0b0d14; color:var(--text); }
+    input[type="file"]{ padding:6px 0; color:var(--text) }
+    button{ height:38px; padding:0 14px; border-radius:10px; border:1px solid #2b3147; background:#141a2a; color:var(--text); font-weight:600; cursor:pointer }
+    button.primary{ background:var(--accent); border-color:#2a6aa0; color:#081019 }
+    button:disabled{ opacity:.5; cursor:not-allowed }
+    .hint{ color:var(--muted); font-size:.9rem }
+    .grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(360px,1fr)); gap:16px }
+    #status{ margin-top:6px; font-size:.95rem }
+    .ok{ color:#62ffa5 } .err{ color:#ff6b6b }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Roboanimator • CSV Viewer</h1>
+    <div class="hint">Visualize CSV logs from the Blender add-on.</div>
+  </header>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="row">
+        <div>
+          <label for="file">CSV file</label>
+          <input id="file" type="file" accept=".csv" />
+        </div>
+        <div>
+          <label for="skiprows">skiprows</label>
+          <input id="skiprows" type="number" min="0" value="2" />
+          <div class="hint">How many top lines to ignore (metadata). Default: 2.</div>
+        </div>
+        <div>
+          <label for="radius">Tire radius (m)</label>
+          <input id="radius" type="number" min="0" step="0.001" placeholder="optional" />
+          <div class="hint">Blank = show speed as avg RPM.</div>
+        </div>
+        <div>
+          <button id="render" class="primary" disabled>Render</button>
+        </div>
+      </div>
+      <div id="status"></div>
+    </div>
+
+    <div class="grid">
+      <div id="xy" class="card" style="height:580px"></div>
+      <div id="xyz" class="card" style="height:580px"></div>
+      <div id="anim" class="card" style="height:580px"></div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const REQUIRED = ["t","x_m","y_m","rateR_rpm","rateL_rpm"];
+  const $ = id => document.getElementById(id);
+  const elFile = $("file"), elBtn = $("render"), elSkip = $("skiprows"), elRad = $("radius"), elStatus = $("status");
+  let file = null;
+
+  elFile.addEventListener("change", e => {
+    file = e.target.files?.[0] || null;
+    elBtn.disabled = !file;
+    setStatus(file ? `Selected: ${file.name}` : "");
+  });
+
+  elBtn.addEventListener("click", () => {
+    if (!file) return;
+    setStatus("Parsing…");
+    parseCSV(file, Number(elSkip.value || 0), (err, data) => {
+      if (err) return setStatus(err, "err");
+      const { t, x, y, rR, rL } = data;
+      const radius = elRad.value === "" ? null : Number(elRad.value);
+      const { speed, label } = computeSpeed(rR, rL, radius);
+      drawXY(x, y, speed, label);
+      drawXYZ(x, y, speed, label, t);
+      drawAnim(x, y, t, speed, label);
+      setStatus(`OK: ${x.length} samples, t=[${t[0]?.toFixed?.(3)} … ${t.at(-1)?.toFixed?.(3)}] s`, "ok");
+    });
+  });
+
+  function setStatus(msg, kind){
+    elStatus.className = kind === "ok" ? "ok" : kind === "err" ? "err" : "";
+    elStatus.textContent = msg || "";
+  }
+
+  function parseCSV(file, skiprows, cb){
+    Papa.parse(file, {
+      worker: true,
+      skipEmptyLines: true,
+      complete: (res) => {
+        try {
+          const rows = res.data;
+          if (!rows?.length) return cb("Empty CSV");
+          const sliced = rows.slice(Math.max(0, skiprows|0));
+
+          // try header at first sliced row; if not, scan a bit
+          let hRow = 0;
+          let header = sliced[hRow].map(s => String(s).trim());
+          const looksLikeHeader = arr => REQUIRED.every(k => arr.includes(k));
+          if (!looksLikeHeader(header)) {
+            const lim = Math.min(15, sliced.length);
+            let found = -1;
+            for (let i=0;i<lim;i++){
+              const hdr = sliced[i].map(s => String(s).trim());
+              if (looksLikeHeader(hdr)) { found = i; header = hdr; break; }
+            }
+            if (found === -1) return cb("Header not found. Try a different skiprows value.");
+            hRow = found;
+          }
+
+          const idx = Object.fromEntries(header.map((h,i)=>[h,i]));
+          const dataRows = sliced.slice(hRow+1);
+
+          const num = (v) => {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : NaN;
+          };
+          const col = (name) => dataRows.map(r => num(r[idx[name]]));
+
+          const t  = col("t");
+          const x  = col("x_m");
+          const y  = col("y_m");
+          const rR = col("rateR_rpm");
+          const rL = col("rateL_rpm");
+
+          // filter rows with valid x,y
+          const X=[], Y=[], T=[], RR=[], RL=[];
+          for (let i=0;i<x.length;i++){
+            if (Number.isFinite(x[i]) && Number.isFinite(y[i])) {
+              X.push(x[i]); Y.push(y[i]); T.push(t[i]); RR.push(rR[i]); RL.push(rL[i]);
+            }
+          }
+          if (X.length < 2) return cb("Not enough valid rows after cleaning.");
+          cb(null, { t:T, x:X, y:Y, rR:RR, rL:RL });
+        } catch (e) {
+          cb("Failed to parse CSV");
+        }
+      }
+    });
+  }
+
+  function computeSpeed(rR, rL, radius){
+    if (radius == null || Number.isNaN(radius)) {
+      return { speed: rR.map((v,i) => ((v||0)+(rL[i]||0))/2), label: "Speed (avg RPM)" };
+    }
+    const toMS = rpm => (rpm/60) * (2*Math.PI*radius);
+    return {
+      speed: rR.map((v,i) => (toMS(v||0) + toMS(rL[i]||0))/2),
+      label: "Speed (m/s)"
+    };
+  }
+
+  function drawXY(x,y,speed,label){
+    const trace = {
+      x, y, mode: "markers", type: "scatter",
+      marker: { size: 6, color: speed, colorbar: { title: label } },
+      hovertemplate: `x: %{x:.4f} m<br>y: %{y:.4f} m<br>${label}: %{marker.color:.4f}<extra></extra>`
+    };
+    Plotly.newPlot("xy", [trace], {
+      title: "XY Path (colored by speed)",
+      xaxis: { title: "X (m)" },
+      yaxis: { title: "Y (m)", scaleanchor:"x", scaleratio:1 },
+      margin: { l:40, r:16, t:40, b:40 },
+      paper_bgcolor: "transparent", plot_bgcolor: "transparent"
+    }, {displaylogo:false});
+  }
+
+  function drawXYZ(x,y,speed,label,t){
+    const trace = {
+      x, y, z: speed, type: "scatter3d", mode: "lines",
+      line: { width: 6 },
+      customdata: t,
+      hovertemplate:
+        "t: %{customdata:.3f}s<br>" +
+        "x: %{x:.4f} m<br>" +
+        "y: %{y:.4f} m<br>" +
+        `${label}: %{z:.4f}<extra></extra>`
+    };
+    Plotly.newPlot("xyz", [trace], {
+      title: "3D Path vs Speed",
+      scene: { xaxis:{title:"X (m)"}, yaxis:{title:"Y (m)"}, zaxis:{title:label} },
+      margin: { l:0, r:0, t:40, b:0 },
+      paper_bgcolor: "transparent"
+    }, {displaylogo:false});
+  }
+
+  function drawAnim(x,y,t,speed,label){
+    const base = { x, y, type:"scatter", mode:"lines", line:{width:2}, name:"Path", hoverinfo:"skip" };
+    const marker0 = {
+      x:[x[0]], y:[y[0]], type:"scatter", mode:"markers", marker:{size:10}, name:"Robot",
+      customdata:[[t[0], speed[0]]],
+      hovertemplate:
+        "t: %{customdata[0]:.3f}s<br>" +
+        "x: %{x:.4f} m<br>" +
+        "y: %{y:.4f} m<br>" +
+        `${label}: %{customdata[1]:.4f}<extra></extra>`
+    };
+    const frames = x.map((_,i) => ({
+      name:String(i),
+      data:[
+        base,
+        { x:[x[i]], y:[y[i]], type:"scatter", mode:"markers",
+          marker:{size:10}, name:"Robot",
+          customdata:[[t[i], speed[i]]] }
+      ]
+    }));
+    Plotly.newPlot("anim", [base, marker0], {
+      title: "XY Path (time slider)",
+      xaxis:{ title:"X (m)" },
+      yaxis:{ title:"Y (m)", scaleanchor:"x", scaleratio:1 },
+      margin:{ l:40, r:16, t:40, b:40 },
+      updatemenus:[{
+        type:"buttons", showactive:false, x:0.02, y:1.12,
+        buttons:[
+          {label:"▶ Play", method:"animate", args:[null,{frame:{duration:25,redraw:false},fromcurrent:true,transition:{duration:0}}]},
+          {label:"⏸ Pause", method:"animate", args:[[null],{mode:"immediate"}]}
+        ]
+      }],
+      sliders:[{
+        active:0, currentvalue:{prefix:"Index: "}, pad:{t:8},
+        steps: x.map((_,i)=>({label:String(i), method:"animate", args:[[String(i)],{mode:"immediate", frame:{duration:0,redraw:false}}]}))
+      }],
+      paper_bgcolor: "transparent", plot_bgcolor: "transparent"
+    }, {displaylogo:false}).then(()=> Plotly.addFrames("anim", frames));
+  }
+})();
+</script>
+</body>
+</html>
