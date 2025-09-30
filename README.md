@@ -28,3 +28,28 @@ You can **zoom, pan, rotate, and hover** on all charts.
 
 ## CSV Format
 Your CSV must include these columns:
+
+t, x_m, y_m, rateR_rpm, rateL_rpm
+
+(where `t` = time in seconds, `x_m`/`y_m` = positions in meters, `rateR_rpm`/`rateL_rpm` = wheel speeds)
+
+Usually the file exported by the add-on already has this format.
+
+---
+
+## Notes
+- Runs entirely client-side (no data leaves your computer).  
+- Works on desktop and modern browsers (Chrome, Firefox, Edge, Safari).  
+- If the chart doesn’t render:
+  - Try adjusting **skiprows** (sometimes it’s 1 or 3 instead of 2).  
+  - Make sure your CSV has the required columns.
+
+---
+
+## Development
+- Built using:
+  - [Plotly.js](https://plotly.com/javascript/) for interactive charts  
+  - [PapaParse](https://www.papaparse.com/) for CSV parsing  
+- Only `index.html` is needed. No build step, no external dependencies.
+
+---
