@@ -4,7 +4,7 @@ This tool lets you open the CSV files exported by the [Roboanimator Blender add-
 No installation needed — just upload your CSV and explore the plots.
 
 👉 **Link:**  
-[link](https://danyals-code.github.io/Roboanimator---CSV-to-plots/)
+https://danyals-code.github.io/Roboanimator-CSV-to-Browser-Based-Plots/
 
 ---
 
