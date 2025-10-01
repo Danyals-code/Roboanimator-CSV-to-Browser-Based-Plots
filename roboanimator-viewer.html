@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Roboanimator • CSV Viewer (Rev B)</title>
+  <title>Roboanimator • CSV Viewer (Projection Layout)</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <!-- libs -->
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
@@ -13,7 +13,7 @@
     body{ margin:0; background:var(--bg); color:var(--text); font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; }
     header{ padding:18px 20px; border-bottom:1px solid var(--line); display:flex; align-items:center; gap:12px; }
     header h1{ font-size:18px; margin:0; letter-spacing:.2px }
-    .wrap{ max-width:1280px; margin:0 auto; padding:18px; }
+    .wrap{ max-width:1200px; margin:0 auto; padding:18px; }
     .card{ background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; margin-bottom:16px; }
     .row{ display:flex; gap:12px; flex-wrap:wrap; align-items:end; }
     label{ display:block; font-weight:600; margin-bottom:6px; color:#c7cbe2 }
@@ -23,31 +23,18 @@
     button.primary{ background:var(--accent); border-color:#2a6aa0; color:#081019 }
     button:disabled{ opacity:.5; cursor:not-allowed }
     .hint{ color:var(--muted); font-size:.9rem }
-    .grid{ display:grid; grid-template-columns:repeat(12,1fr); gap:16px }
     #status{ margin-top:6px; font-size:.95rem }
     .ok{ color:#62ffa5 } .err{ color:#ff6b6b }
-    .kv{ display:grid; grid-template-columns: 1fr auto; gap:6px 12px; }
-    .kv div{ padding:4px 0; border-bottom:1px dashed #2a2f44 }
-    .kv div:nth-child(2n){ text-align:right; color:#d2d6e7 }
-    .section-title{ font-weight:700; margin:0 0 8px; letter-spacing:.2px }
-    .plots-col{ grid-column: span 12; }
-    @media (min-width:1100px){ .plots-col{ grid-column: span 8; } .side-col{ grid-column: span 4; } }
-    .plot{ height:420px }
-    #xyPath{ height:460px }
-    .small{ font-size:.85rem; color:var(--muted); }
-    .toolbar{ display:flex; gap:8px; align-items:center; justify-content:space-between; margin-bottom:6px }
-    .toggle{ display:flex; align-items:center; gap:8px }
-    .toggle input{ width:auto }
+    .plot{ height:380px }
   </style>
 </head>
 <body>
   <header>
     <h1>Roboanimator • CSV Viewer</h1>
-    <div class="hint">Faster read → clearer plots → tighter debugging.</div>
+    <div class="hint">Visualize CSV logs from the Blender add-on.</div>
   </header>
 
   <div class="wrap">
-    <!-- 0) File + Immediate Summary -->
     <div class="card">
       <div class="row">
         <div>
@@ -68,47 +55,16 @@
           <button id="render" class="primary" disabled>Parse & Render</button>
         </div>
       </div>
-      <div id="status" class="small"></div>
+      <div id="status"></div>
     </div>
 
-    <div class="grid">
-      <div class="card side-col" id="summaryCard">
-        <p class="section-title">CSV Info</p>
-        <div class="kv" id="summaryKV">
-          <div>File</div><div id="kv_file" class="small">–</div>
-          <div>Rows (clean)</div><div id="kv_rows">–</div>
-          <div>Duration (s)</div><div id="kv_dur">–</div>
-          <div>t range (s)</div><div id="kv_trange">–</div>
-          <div>Median Δt (s)</div><div id="kv_dt">–</div>
-          <div>Nominal FPS</div><div id="kv_fps">–</div>
-          <div>Path length (m)</div><div id="kv_path">–</div>
-          <div>Speed min / max</div><div id="kv_sminmax">–</div>
-          <div>Unit</div><div id="kv_sunit">–</div>
-        </div>
-        <div class="hint" style="margin-top:8px">Summary updates when you re-parse.</div>
-      </div>
+    <div class="card">
+      <div id="speedPlot" class="plot"></div>
+      <div id="xyPlot" class="plot"></div>
+    </div>
 
-      <div class="plots-col">
-        <div class="card">
-          <div class="toolbar">
-            <p class="section-title" style="margin:0">Speed vs Time</p>
-            <div class="toggle small"><input type="checkbox" id="lockY"/><label for="lockY">Lock Y-range</label></div>
-          </div>
-          <div id="speedPlot" class="plot"></div>
-        </div>
-        <div class="card">
-          <div class="toolbar">
-            <p class="section-title" style="margin:0">XY Path (projection of the same timeline)</p>
-            <div class="small" id="projectionInfo">Hover the speed plot to scrub.</div>
-          </div>
-          <div id="xyPath"></div>
-        </div>
-      </div>
-
-      <div class="card side-col">
-        <p class="section-title">3D Path vs Speed</p>
-        <div id="xyz3d" style="height:540px"></div>
-      </div>
+    <div class="card">
+      <div id="xyzPlot" style="height:500px"></div>
     </div>
   </div>
 
@@ -117,18 +73,13 @@
   const REQUIRED = ["t","x_m","y_m","rateR_rpm","rateL_rpm"];
   const $ = id => document.getElementById(id);
   const elFile = $("file"), elBtn = $("render"), elSkip = $("skiprows"), elRad = $("radius"), elStatus = $("status");
-  const elKV = {
-    file: $("kv_file"), rows: $("kv_rows"), dur: $("kv_dur"), trange: $("kv_trange"), dt: $("kv_dt"), fps: $("kv_fps"), path: $("kv_path"), sminmax: $("kv_sminmax"), sunit: $("kv_sunit")
-  };
-  const elLockY = $("lockY");
 
-  let file = null, current = null, cachedFrames = null;
+  let file = null, current = null;
 
   elFile.addEventListener("change", e => {
     file = e.target.files?.[0] || null;
     elBtn.disabled = !file;
     setStatus(file ? `Selected: ${file.name}` : "");
-    elKV.file.textContent = file ? file.name : "–";
   });
 
   elBtn.addEventListener("click", () => {
@@ -136,206 +87,69 @@
     parseAndRender();
   });
 
-  elLockY.addEventListener('change', ()=> drawSpeed(current));
-
   function setStatus(msg, kind){
-    elStatus.className = kind === "ok" ? "ok small" : kind === "err" ? "err small" : "small";
+    elStatus.className = kind === "ok" ? "ok" : kind === "err" ? "err" : "";
     elStatus.textContent = msg || "";
   }
 
   function parseAndRender(){
     setStatus("Parsing…");
-    parseCSV(file, Number(elSkip.value || 0), (err, data) => {
-      if (err) return setStatus(err, "err");
-      const { t, x, y, rR, rL } = data;
-      const radius = elRad.value === "" ? null : Number(elRad.value);
-      const { speed, label, unit } = computeSpeed(rR, rL, radius);
-      current = { t, x, y, rR, rL, speed, label, unit };
-
-      // summary first
-      populateSummary(current);
-
-      // then plots: speed (flat), path projection (stacked), 3D
-      drawSpeed(current);
-      drawXYProjection(current);
-      draw3D(current);
-
-      setStatus(`OK: ${x.length} samples, t=[${fmt(t[0])} … ${fmt(t.at(-1))}] s`, "ok");
-    });
-  }
-
-  function fmt(n, d=3){ return (Number(n).toFixed?.(d) ?? String(n)); }
-
-  function parseCSV(file, skiprows, cb){
     Papa.parse(file, {
       worker: true,
       skipEmptyLines: true,
       complete: (res) => {
         try {
           const rows = res.data;
-          if (!rows?.length) return cb("Empty CSV");
-          const sliced = rows.slice(Math.max(0, skiprows|0));
+          if (!rows?.length) return setStatus("Empty CSV","err");
+          const sliced = rows.slice(Math.max(0, Number(elSkip.value||0)));
 
-          // header finding
-          let hRow = 0;
-          let header = sliced[hRow].map(s => String(s).trim());
-          const looksLikeHeader = arr => REQUIRED.every(k => arr.includes(k));
-          if (!looksLikeHeader(header)) {
-            const lim = Math.min(20, sliced.length);
-            let found = -1;
-            for (let i=0;i<lim;i++){
-              const hdr = sliced[i].map(s => String(s).trim());
-              if (looksLikeHeader(hdr)) { found = i; header = hdr; break; }
-            }
-            if (found === -1) return cb("Header not found. Adjust skiprows.");
-            hRow = found;
-          }
-
+          let header = sliced[0].map(s=>String(s).trim());
+          const looksLikeHeader = arr => REQUIRED.every(k=>arr.includes(k));
+          if (!looksLikeHeader(header)) return setStatus("Header not found.","err");
           const idx = Object.fromEntries(header.map((h,i)=>[h,i]));
-          const dataRows = sliced.slice(hRow+1);
+          const dataRows = sliced.slice(1);
+          const num=v=>{const n=Number(v);return Number.isFinite(n)?n:NaN};
+          const col=name=>dataRows.map(r=>num(r[idx[name]]));
+          const t=col("t"), x=col("x_m"), y=col("y_m"), rR=col("rateR_rpm"), rL=col("rateL_rpm");
 
-          const num = (v) => {
-            const n = Number(v);
-            return Number.isFinite(n) ? n : NaN;
-          };
-          const col = (name) => dataRows.map(r => num(r[idx[name]]));
+          const clean = t.map((v,i)=>({t:v,x:x[i],y:y[i],rR:rR[i],rL:rL[i]})).filter(o=>Number.isFinite(o.t)&&Number.isFinite(o.x)&&Number.isFinite(o.y));
+          if(clean.length<2) return setStatus("Not enough valid rows","err");
 
-          const t  = col("t");
-          const x  = col("x_m");
-          const y  = col("y_m");
-          const rR = col("rateR_rpm");
-          const rL = col("rateL_rpm");
+          const radius = elRad.value===""?null:Number(elRad.value);
+          const toMS=rpm=>(rpm/60)*(2*Math.PI*radius);
+          const speed = clean.map(o=> radius? (toMS(o.rR)+toMS(o.rL))/2 : ((o.rR+o.rL)/2));
+          const label = radius?"Speed (m/s)":"Speed (avg RPM)";
 
-          // filter rows with valid x,y,t
-          const X=[], Y=[], T=[], RR=[], RL=[];
-          for (let i=0;i<x.length;i++){
-            if (Number.isFinite(x[i]) && Number.isFinite(y[i]) && Number.isFinite(t[i])) {
-              X.push(x[i]); Y.push(y[i]); T.push(t[i]); RR.push(rR[i]); RL.push(rL[i]);
-            }
-          }
-          if (X.length < 2) return cb("Not enough valid rows after cleaning.");
-          cb(null, { t:T, x:X, y:Y, rR:RR, rL:RL });
-        } catch (e) {
-          cb("Failed to parse CSV");
-        }
+          current = {t:clean.map(o=>o.t),x:clean.map(o=>o.x),y:clean.map(o=>o.y),speed,label};
+
+          drawSpeed();
+          drawXY();
+          draw3D();
+          setStatus(`OK: ${clean.length} samples, t=[${clean[0].t.toFixed(3)}…${clean.at(-1).t.toFixed(3)}] s`,"ok");
+        }catch(e){setStatus("Parse failed","err");}
       }
     });
   }
 
-  function computeSpeed(rR, rL, radius){
-    if (radius == null || Number.isNaN(radius)) {
-      return { speed: rR.map((v,i) => ((v||0)+(rL[i]||0))/2), label: "Speed (avg RPM)", unit: "RPM" };
-    }
-    const toMS = rpm => (rpm/60) * (2*Math.PI*radius);
-    return {
-      speed: rR.map((v,i) => (toMS(v||0) + toMS(rL[i]||0))/2),
-      label: "Speed (m/s)", unit: "m/s"
-    };
+  function drawSpeed(){
+    const {t,speed,label} = current;
+    Plotly.newPlot('speedPlot',[{x:t,y:speed,type:'scatter',mode:'lines',line:{width:2},hovertemplate:`t=%{x:.3f}s<br>${label}: %{y:.4f}<extra></extra>`}],
+      {title:'Speed vs Time',xaxis:{title:'t (s)'},yaxis:{title:label},margin:{l:50,r:16,t:40,b:40},paper_bgcolor:'transparent',plot_bgcolor:'transparent'},
+      {displaylogo:false,responsive:true});
   }
 
-  function populateSummary({t,x,y,speed,unit}){
-    const n = x.length;
-    const t0 = t[0], t1 = t[n-1];
-    const duration = t1 - t0;
-    const dts = Array.from({length:n-1}, (_,i)=> t[i+1]-t[i]).filter(Number.isFinite);
-    const medDt = dts.slice().sort((a,b)=>a-b)[Math.floor(dts.length/2)] || NaN;
-    const fps = medDt>0 ? 1/medDt : NaN;
-    const pathLen = (()=>{
-      let s=0; for(let i=1;i<n;i++){ const dx=x[i]-x[i-1], dy=y[i]-y[i-1]; s+=Math.hypot(dx,dy); } return s; })();
-    const smin = Math.min(...speed.filter(Number.isFinite)), smax = Math.max(...speed.filter(Number.isFinite));
-
-    elKV.rows.textContent = String(n);
-    elKV.dur.textContent = isFinite(duration) ? fmt(duration,3) : '–';
-    elKV.trange.textContent = `${fmt(t0,3)} … ${fmt(t1,3)}`;
-    elKV.dt.textContent = isFinite(medDt) ? fmt(medDt,4) : '–';
-    elKV.fps.textContent = isFinite(fps) ? fmt(fps,2) : '–';
-    elKV.path.textContent = isFinite(pathLen) ? fmt(pathLen,3) : '–';
-    elKV.sminmax.textContent = (isFinite(smin) && isFinite(smax)) ? `${fmt(smin,3)} / ${fmt(smax,3)}` : '–';
-    elKV.sunit.textContent = unit || '–';
+  function drawXY(){
+    const {x,y,t,speed,label} = current;
+    Plotly.newPlot('xyPlot',[{x,y,type:'scatter',mode:'lines',line:{width:2},hovertemplate:`x=%{x:.3f} m<br>y=%{y:.3f} m<extra></extra>`}],
+      {title:'XY Path',xaxis:{title:'X (m)'},yaxis:{title:'Y (m)',scaleanchor:'x',scaleratio:1},margin:{l:50,r:16,t:40,b:40},paper_bgcolor:'transparent',plot_bgcolor:'transparent'},
+      {displaylogo:false,responsive:true});
   }
 
-  function drawSpeed({t,speed,label}){
-    if (!t) return;
-    const yaxis = elLockY.checked && cachedFrames?.speedY ? cachedFrames.speedY : {};
-
-    const trace = { x:t, y:speed, type:'scatter', mode:'lines', name:'Speed', line:{width:2}, hovertemplate: `t=%{x:.3f}s<br>${label}: %{y:.4f}<extra></extra>` };
-    Plotly.newPlot('speedPlot', [trace], {
-      title: 'Speed vs Time',
-      xaxis: { title:'t (s)' },
-      yaxis: { title: label, ...yaxis },
-      margin: { l:50, r:16, t:40, b:40 },
-      paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-      shapes: cachedFrames?.vline ? [cachedFrames.vline] : []
-    }, {displaylogo:false, responsive:true}).then(() => {
-      // bind hover to project into XY plot
-      const sp = document.getElementById('speedPlot');
-      sp.on('plotly_hover', ev => {
-        const xVal = ev.points?.[0]?.x; // time
-        if (xVal==null || !current) return;
-        projectAtTime(xVal);
-      });
-      sp.on('plotly_unhover', () => highlightIndex(-1));
-      sp.on('plotly_relayout', (e)=>{
-        if (elLockY.checked && e['yaxis.range[0]']!=null) {
-          cachedFrames.speedY = { range:[e['yaxis.range[0]'], e['yaxis.range[1]']] };
-        }
-      })
-    });
-  }
-
-  function drawXYProjection({x,y,t,speed,label}){
-    const base = { x, y, type:'scatter', mode:'lines', name:'Path', line:{width:2}, hoverinfo:'skip' };
-    const marker = { x:[x[0]], y:[y[0]], type:'scatter', mode:'markers', marker:{size:10}, name:'Here', hoverinfo:'skip' };
-
-    Plotly.newPlot('xyPath', [base, marker], {
-      xaxis:{ title:'X (m)' },
-      yaxis:{ title:'Y (m)', scaleanchor:'x', scaleratio:1 },
-      margin:{ l:50, r:16, t:10, b:40 },
-      paper_bgcolor:'transparent', plot_bgcolor:'transparent',
-      annotations: [
-        { x: x[0], y: y[0], ax: 0, ay: -25, arrowhead: 2, arrowwidth: 1, arrowsize: 1, text: 't=0', showarrow: true }
-      ]
-    }, {displaylogo:false, responsive:true});
-
-    // cache simple index mapping for projection
-    cachedFrames = cachedFrames || {};
-    cachedFrames.idxByTime = (tt=>{
-      // returns index of t closest to query
-      return function(q){
-        let lo=0, hi=tt.length-1;
-        while(hi-lo>1){ const mid=(lo+hi)>>1; if (tt[mid] < q) lo=mid; else hi=mid; }
-        return (Math.abs(tt[lo]-q) <= Math.abs(tt[hi]-q)) ? lo : hi;
-      }
-    })(t);
-  }
-
-  function projectAtTime(time){
-    const { t, x, y } = current;
-    const i = cachedFrames.idxByTime(time);
-    highlightIndex(i, time);
-  }
-
-  function highlightIndex(i, time){
-    const { t, x, y, label } = current || {};
-    const show = i>=0 && i < x.length;
-
-    // vertical line on speed plot
-    const vline = show ? { type:'line', x0:t[i], x1:t[i], y0:0, y1:1, xref:'x', yref:'paper', line:{ width:1, dash:'dot' } } : null;
-    cachedFrames.vline = vline || undefined;
-    Plotly.relayout('speedPlot', { shapes: vline ? [vline] : [] });
-
-    // move marker + annotation on XY plot
-    Plotly.restyle('xyPath', { x:[ [x], [ show ? [x[i]] : [] ] ], y:[ [y], [ show ? [y[i]] : [] ] ] });
-    Plotly.relayout('xyPath', { annotations: show ? [ { x:x[i], y:y[i], ax:0, ay:-25, arrowhead:2, arrowsize:1, arrowwidth:1, text:`t=${fmt(t[i],3)}s`, showarrow:true } ] : [] });
-  }
-
-  function draw3D({x,y,t,speed,label}){
-    const trace = { x, y, z: speed, type:'scatter3d', mode:'lines', line:{ width:5 }, customdata:t, hovertemplate:`t: %{customdata:.3f}s<br>x: %{x:.4f} m<br>y: %{y:.4f} m<br>${label}: %{z:.4f}<extra></extra>` };
-    Plotly.newPlot('xyz3d', [trace], {
-      scene: { xaxis:{title:'X (m)'}, yaxis:{title:'Y (m)'}, zaxis:{title:label} },
-      margin:{ l:0, r:0, t:10, b:0 },
-      paper_bgcolor:'transparent'
-    }, {displaylogo:false, responsive:true});
+  function draw3D(){
+    const {x,y,t,speed,label} = current;
+    Plotly.newPlot('xyzPlot',[{x,y,z:speed,type:'scatter3d',mode:'lines',line:{width:5},customdata:t,hovertemplate:`t=%{customdata:.3f}s<br>x=%{x:.3f} m<br>y=%{y:.3f} m<br>${label}: %{z:.3f}<extra></extra>`}],
+      {title:'3D Path vs Speed',scene:{xaxis:{title:'X (m)'},yaxis:{title:'Y (m)'},zaxis:{title:label}},margin:{l:0,r:0,t:40,b:0},paper_bgcolor:'transparent'},
+      {displaylogo:false,responsive:true});
   }
 })();
 </script>
