@@ -1,4 +1,4 @@
-# RoboAnimator – CSV to Plots (Browser Based)
+# RoboAnimator – CSV Visualization (Browser Based Plots for Animation Data)
 
 This tool lets you open the CSV files exported by the [Roboanimator Blender add-on](https://extensions.blender.org/approval-queue/true-roboanimator/) and quickly visualize the data in your browser.  
 No installation needed — just upload your CSV and explore the plots.
